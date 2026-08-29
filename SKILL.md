@@ -1,15 +1,30 @@
 ---
 name: browser-harness
-description: "Control a real browser via CDP: clicking, typing, navigation, logged-in sessions, JS-rendered or bot-protected pages. Not for plain HTTP fetches of public content - use curl for those."
+description: "Scripted browser control over CDP from a Python process — multi-step interaction flows, scraping loops, site and app testing, and reusable per-site domain skills. Use when a task needs many browser steps in one program, the user's logged-in session, JS rendering, or a bot-protected page a plain fetch cannot read; also for Browser Use cloud browsers when work must run isolated or in parallel. Prefer your environment's direct browser-automation MCP tools for ordinary page driving — navigate, click, read, screenshot — and curl for anything a plain HTTP request can fetch."
 ---
 
 # browser-harness
 
 Direct browser control via CDP. For task-specific edits, use `agent-workspace/agent_helpers.py`. For setup, install, or connection problems, read https://github.com/browser-use/browser-harness/blob/main/install.md.
 
-## When Not to Use
+## When to Use
 
-A basic fetch of public information needs no browser. If a plain HTTP request can read it — a public page, an API, docs — use `curl` or your fetch tool, and leave the browser alone. Use browser-harness when the task needs interaction (click, type, navigate), the user's logged-in session, JS rendering, or a bot-protected page. If a direct fetch fails or returns a shell page, then escalate to the browser.
+browser-harness is one browser path among several. Pick it deliberately.
+
+| Reach for | When |
+|---|---|
+| `curl` or a plain fetch tool | A public page, an API, or docs that a plain HTTP request can read |
+| Your environment's browser-automation MCP tools, if it has any | Ordinary page driving — one navigate, click, read, screenshot, form fill |
+| **browser-harness** | A scripted multi-step flow that wants one Python process: scraping loops, long form sequences, conditional branching, the user's logged-in session, JS rendering, a bot-protected page, or a cloud browser for isolated and parallel work |
+
+Two constraints decide most of it:
+
+- **A plain fetch beats a browser.** Escalate to a browser only when the task needs interaction, the logged-in session, JS rendering, or the page is bot-protected. If a direct fetch fails or returns a shell page, then escalate.
+- **One debugger client per tab.** The harness attaches over CDP. If another tool or extension is driving the same local Chrome, do not point the harness at a tab that client is holding — give it its own tab, or finish one before starting the other.
+
+This repository also ships an MCP server (`mcp_server.py`, `docs/MCP.md`) that re-exposes the
+same helpers as `browser_*` tools. Wire up either the CLI or that server, not both against the
+same tab.
 
 Domain skills are off by default. Set `BH_DOMAIN_SKILLS=1` to enable them; see the bottom section.
 
@@ -88,8 +103,14 @@ recover.
 If the daemon cannot connect, run diagnostics:
 
 ```bash
-browser-harness --doctor
+browser-harness --doctor          # human-readable
+browser-harness doctor --json     # machine-readable; read-only, never starts or repairs anything
 ```
+
+Read `chrome_running` before blaming the harness. `chrome_running: false` means Chrome itself
+is down, which is a browser problem, not a harness fault. Some environments launch Chrome with
+a fixed `--remote-debugging-port` and a dedicated profile; there, relaunching the browser can
+disturb other work, so ask the user before doing it.
 
 If Chrome is not running at all, the harness launches it automatically and retries.
 
@@ -131,6 +152,24 @@ command running and ask the user to click Allow if Chrome presents the approval
 dialog. Their click completes the same handshake, so resume or poll the original
 process for success; do not rerun it or create a replacement daemon. If that
 Chrome build presents no approval dialog, the original command simply connects.
+
+## Updating
+
+```bash
+browser-harness --update -y
+```
+
+`--doctor` reports the install mode. In `git` mode the command runs `git pull --ff-only` in the
+checkout, so the checkout **is** the running code, and the pull only fast-forwards — a diverged or
+dirty checkout is refused rather than merged. Two traps follow from that:
+
+- **A pull alone does not update the running daemon.** The daemon is long-lived and holds the old
+  code in memory until it is restarted. `--update` offers the restart and `-y` accepts it; decline
+  it and the daemon keeps running old code with no warning. A restart drops the daemon's CDP
+  connection, so check nothing else is mid-task first.
+- **A pull alone does not move `--version`.** The reported version comes from package metadata
+  written at install time, not from the checkout. Resync it with `uv tool install --editable .
+  --force` from the checkout.
 
 ## Remote Browsers
 
@@ -274,3 +313,10 @@ If you get stuck on a browser mechanic, check https://github.com/browser-use/bro
 Only applies when `BH_DOMAIN_SKILLS=1`. Otherwise ignore domain skills.
 
 When enabled, search `$BH_AGENT_WORKSPACE/domain-skills/<host>/` before inventing an approach. `goto_url(...)` returns up to 10 skill filenames for the navigated host.
+
+**The agent workspace is not this repository.** `$BH_AGENT_WORKSPACE` defaults to
+`agent-workspace/` under the harness config directory
+(`$XDG_CONFIG_HOME/browser-harness`, else `~/.config/browser-harness`), and it starts **empty**.
+The `agent-workspace/domain-skills/` directory in this repository holds contributed *examples*
+only. Copy an example into the live workspace before expecting it to match; with an empty
+workspace, `BH_DOMAIN_SKILLS=1` matches nothing and is not evidence that domain skills are broken.
